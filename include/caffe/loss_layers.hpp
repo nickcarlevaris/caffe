@@ -476,6 +476,41 @@ class InfogainLossLayer : public LossLayer<Dtype> {
 };
 
 /**
+ * @brief Computes the mahalanobis loss
+ */
+template <typename Dtype>
+class MahalanobisLossLayer : public LossLayer<Dtype> {
+ public:
+  explicit MahalanobisLossLayer(const LayerParameter& param)
+      : LossLayer<Dtype>(param), diff_() {}
+  virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+
+  virtual inline int ExactNumBottomBlobs() const { return 2; }
+  virtual inline const char* type() const { return "MahalanobisLoss"; }
+
+ protected:
+  /// @copydoc MahalanobisLossLayer
+  virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+
+  /**
+   * @brief Computes the mahalanobis error gradient w.r.t. the inputs.
+   */
+  virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
+      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
+      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+
+  Blob<Dtype> diff_;  // cached for backward pass
+  vector<uint32_t> is_angle_;  // indicates dimensions that represent an angle
+};
+
+/**
  * @brief Computes the multinomial logistic loss for a one-of-many
  *        classification task, directly taking a predicted probability
  *        distribution as input.

@@ -885,6 +885,8 @@ const char* UpgradeV1LayerType(const V1LayerParameter_LayerType type) {
     return "InnerProduct";
   case V1LayerParameter_LayerType_LRN:
     return "LRN";
+  case V1LayerParameter_LayerType_MAHALANOBIS_LOSS:
+    return "MahalanobisLoss";
   case V1LayerParameter_LayerType_MEMORY_DATA:
     return "MemoryData";
   case V1LayerParameter_LayerType_MULTINOMIAL_LOGISTIC_LOSS:

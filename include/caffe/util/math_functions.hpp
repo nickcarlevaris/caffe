@@ -67,6 +67,10 @@ void caffe_div(const int N, const Dtype* a, const Dtype* b, Dtype* y);
 template <typename Dtype>
 void caffe_powx(const int n, const Dtype* a, const Dtype b, Dtype* y);
 
+// Returns an angle between -pi and pi
+template <typename Dtype>
+Dtype caffe_cpu_min_angle(const Dtype t);
+
 unsigned int caffe_rng_rand();
 
 template <typename Dtype>

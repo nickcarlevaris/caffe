@@ -216,6 +216,28 @@ void caffe_abs<double>(const int n, const double* a, double* y) {
     vdAbs(n, a, y);
 }
 
+template <>
+float caffe_cpu_min_angle(const float t) {
+  float tm = 0.0;
+  if (t >= 0.) {
+    tm = fmod(t+M_PI, 2.0*M_PI) - M_PI;
+  } else {
+    tm = fmod(t-M_PI, -2.0*M_PI) + M_PI;
+  }
+  return tm;
+}
+
+template <>
+double caffe_cpu_min_angle(const double t) {
+  double tm = 0.0;
+  if (t >= 0.) {
+    tm = fmod(t+M_PI, 2.0*M_PI) - M_PI;
+  } else {
+    tm = fmod(t-M_PI, -2.0*M_PI) + M_PI;
+  }
+  return tm;
+}
+
 unsigned int caffe_rng_rand() {
   return (*caffe_rng())();
 }
