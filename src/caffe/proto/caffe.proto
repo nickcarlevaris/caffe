@@ -45,6 +45,16 @@ message FillerParameter {
   // both (by averaging)
   optional bool fan_in = 8 [default = true];
   optional bool fan_out = 9 [default = false];
+  optional float negative_slope = 10 [default = 0.0];
+  // negative slope of successive relu, for msr filler
+  optional float scale = 11 [default = 1.0];
+  // weights scale for msr filler
+  optional FillerLayerType layer_type = 12 [default = NONE];
+  enum FillerLayerType { // type of layer for msr filler
+    NONE = 0;
+    INNER_PRODUCT = 1;// blob(1,1,w,h),  w     -> out_num, h     -> in_num
+    CONVOLUTION = 2;  // blob(n,c,w,h),  n*w*h -> out_num, c*w*h -> in_num
+  }
 }
 
 message NetParameter {

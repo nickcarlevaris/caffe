@@ -147,48 +147,140 @@ class MSRFillerTest : public ::testing::Test {
  protected:
   MSRFillerTest()
       : blob_(new Blob<Dtype>(1000, 2, 4, 5)),
+        blob_1x1xhxw(new Blob<Dtype>(1, 1, 123, 234)),
         filler_param_() {
   }
-  virtual void test_params(bool fan_in, bool fan_out, Dtype n) {
+  virtual void test_params(bool fan_in, bool fan_out, Dtype n,
+      Dtype negative_slope = 0.0, Dtype scale = 1.0,
+      FillerParameter_FillerLayerType layer_type = FillerParameter_FillerLayerType_CONVOLUTION) {
     this->filler_param_.set_fan_in(fan_in);
     this->filler_param_.set_fan_out(fan_out);
+    this->filler_param_.set_scale(scale);
+    this->filler_param_.set_negative_slope(negative_slope);
+    this->filler_param_.set_layer_type(layer_type);
     this->filler_.reset(new MSRFiller<Dtype>(this->filler_param_));
-    this->filler_->Fill(blob_);
-    EXPECT_TRUE(this->blob_);
-    const int count = this->blob_->count();
-    const Dtype* data = this->blob_->cpu_data();
-    Dtype mean = 0.;
-    Dtype ex2 = 0.;
+
+    int count = -1;
+    const Dtype* data = NULL;
+    switch (layer_type) {
+
+      case FillerParameter_FillerLayerType_CONVOLUTION: {
+        this->filler_->Fill(blob_);
+        EXPECT_TRUE(this->blob_);
+        count = this->blob_->count();
+        data = this->blob_->cpu_data();
+        break;
+      }
+      case FillerParameter_FillerLayerType_INNER_PRODUCT: {
+        this->filler_->Fill(blob_1x1xhxw);
+        EXPECT_TRUE(this->blob_1x1xhxw);
+        count = this->blob_1x1xhxw->count();
+        data = this->blob_1x1xhxw->cpu_data();
+        break;
+      }
+      default:
+        CHECK(false) << "unspecified layer type";
+        break;
+
+    }
+
+
+    const Dtype target_mean = 0.0;
+    const Dtype target_variance =  scale * scale * (2.0 / (n * (1 + negative_slope * negative_slope)));
+
+    const Dtype sample_variance_std = target_variance * sqrt(2.0/(count-1));
+    //  http://en.wikipedia.org/wiki/Variance#Distribution_of_the_sample_variance
+    const Dtype sample_mean_std = sqrt(target_variance) / sqrt(count);
+    //  http://en.wikipedia.org/wiki/Standard_error
+
+    Dtype sample_mean = 0.;
+    Dtype ex2 = 0;
     for (int i = 0; i < count; ++i) {
-      mean += data[i];
+      sample_mean += data[i];
       ex2 += data[i] * data[i];
     }
-    mean /= count;
+
+
+    sample_mean /= count;
     ex2 /= count;
-    Dtype std = sqrt(ex2 - mean*mean);
-    Dtype target_std = sqrt(2.0 / n);
-    EXPECT_NEAR(mean, 0.0, 0.1);
-    EXPECT_NEAR(std, target_std, 0.1);
+    Dtype sample_variance = (ex2 - sample_mean * sample_mean) * (count / (count - 1));
+
+    EXPECT_NEAR(sample_mean, target_mean, 5 * sample_mean_std);
+    EXPECT_NEAR(sample_variance,target_variance, 5 * sample_variance_std);
   }
   virtual ~MSRFillerTest() { delete blob_; }
   Blob<Dtype>* const blob_;
+  Blob<Dtype>* const blob_1x1xhxw;
+
   FillerParameter filler_param_;
   shared_ptr<MSRFiller<Dtype> > filler_;
 };
 
 TYPED_TEST_CASE(MSRFillerTest, TestDtypes);
 
-TYPED_TEST(MSRFillerTest, TestFillFanIn) {
-  TypeParam n = 2*4*5;
-  this->test_params(true, false, n);
-}
-TYPED_TEST(MSRFillerTest, TestFillFanOut) {
-  TypeParam n = 1000*4*5;
-  this->test_params(false, true, n);
-}
-TYPED_TEST(MSRFillerTest, TestFillFanInFanOut) {
-  TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
-  this->test_params(true, true, n);
-}
+  TYPED_TEST(MSRFillerTest, TestFillFanIn) {
+    TypeParam n = 2*4*5;
+    this->test_params(true, false, n);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanOut) {
+    TypeParam n = 1000*4*5;
+    this->test_params(false, true, n);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOut) {
+    TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
+    this->test_params(true, true, n);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInNegativeSlopeOne) {
+    TypeParam n = 2*4*5;
+    this->test_params(true, false, n, 1);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanOutNegativeSlopeOne) {
+    TypeParam n = 1000*4*5;
+    this->test_params(false, true, n, 1);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOutNegativeSlopeOne) {
+    TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
+    this->test_params(true, true, n, 1);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOutNegativeSlopeMinusOne) {
+    TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
+    this->test_params(true, true, n, -1);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOutNegativeSlopeThousand) {
+    TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
+    this->test_params(true, true, n, 1000);
+  }
+
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOutNegativeSlopeMinusOneScaleTen) {
+    TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
+    this->test_params(true, true, n, -1, 10);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInNegativeSlopeMinusOneScaleTen) {
+    TypeParam n = 2*4*5;
+    this->test_params(true, false, n, -1, 10);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanOutNegativeSlopeMinusOneScaleTen) {
+    TypeParam n = 1000*4*5;
+    this->test_params(false, true, n, -1, 10);
+  }
+
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOutNegativeSlopeZeroOneScaleThousand) {
+    TypeParam n = (2*4*5 + 1000*4*5) / 2.0;
+    this->test_params(true, true, n, 0, 1000);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInFanOutNegativeSlopeMinusOneScaleTenInnerProduct) {
+    TypeParam n = (123 + 234) / 2.0;
+    this->test_params(true, true, n, -1, 10,FillerParameter_FillerLayerType_INNER_PRODUCT);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanInNegativeSlopeMinusOneInnerProduct) {
+    TypeParam n = 123;
+    this->test_params(true, false, n, -1, 1,FillerParameter_FillerLayerType_INNER_PRODUCT);
+  }
+  TYPED_TEST(MSRFillerTest, TestFillFanOutNegativeSlopeMinusOneScaleTenInnerProduct) {
+    TypeParam n = 234;
+    this->test_params(false, true, n, -1, 10,FillerParameter_FillerLayerType_INNER_PRODUCT);
+  }
+
+
 
 }  // namespace caffe

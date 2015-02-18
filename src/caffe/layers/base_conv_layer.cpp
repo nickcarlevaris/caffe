@@ -82,8 +82,9 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     // output channels x input channels per-group x kernel height x kernel width
     this->blobs_[0].reset(new Blob<Dtype>(
         conv_out_channels_, conv_in_channels_ / group_, kernel_h_, kernel_w_));
-    shared_ptr<Filler<Dtype> > weight_filler(GetFiller<Dtype>(
-        this->layer_param_.convolution_param().weight_filler()));
+    FillerParameter wf_params =  this->layer_param_.convolution_param().weight_filler();
+    wf_params.set_layer_type(FillerParameter_FillerLayerType_CONVOLUTION);
+    shared_ptr<Filler<Dtype> > weight_filler(GetFiller<Dtype>(wf_params));
     weight_filler->Fill(this->blobs_[0].get());
     // If necessary, initialize and fill the biases:
     // 1 x 1 x 1 x output channels
