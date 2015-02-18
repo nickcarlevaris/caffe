@@ -157,18 +157,28 @@ class MSRFillerTest : public ::testing::Test {
     EXPECT_TRUE(this->blob_);
     const int count = this->blob_->count();
     const Dtype* data = this->blob_->cpu_data();
-    Dtype mean = 0.;
-    Dtype ex2 = 0.;
+    const Dtype target_mean = 0.0;
+    const Dtype target_variance = 2.0 / n;
+
+    const Dtype sample_variance_std = target_variance * sqrt(2.0/(count-1));
+    //  http://en.wikipedia.org/wiki/Variance#Distribution_of_the_sample_variance
+    const Dtype sample_mean_std = sqrt(target_variance) / sqrt(count);
+    //  http://en.wikipedia.org/wiki/Standard_error
+
+    Dtype sample_mean = 0.;
+    Dtype ex2 = 0;
     for (int i = 0; i < count; ++i) {
-      mean += data[i];
+      sample_mean += data[i];
       ex2 += data[i] * data[i];
     }
-    mean /= count;
+
+
+    sample_mean /= count;
     ex2 /= count;
-    Dtype std = sqrt(ex2 - mean*mean);
-    Dtype target_std = sqrt(2.0 / n);
-    EXPECT_NEAR(mean, 0.0, 0.1);
-    EXPECT_NEAR(std, target_std, 0.1);
+    Dtype sample_variance = (ex2 - sample_mean * sample_mean) * (count / (count - 1));
+
+    EXPECT_NEAR(sample_mean, target_mean, 5 * sample_mean_std);
+    EXPECT_NEAR(sample_variance,target_variance, 5 * sample_variance_std);
   }
   virtual ~MSRFillerTest() { delete blob_; }
   Blob<Dtype>* const blob_;
