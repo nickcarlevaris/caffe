@@ -163,28 +163,48 @@ class XavierFiller : public Filler<Dtype> {
  *        Zhang, Ren and Sun 2015]
  */
 template <typename Dtype>
-class MSRFiller : public Filler<Dtype> {
- public:
-  explicit MSRFiller(const FillerParameter& param)
-      : Filler<Dtype>(param) {}
-  virtual void Fill(Blob<Dtype>* blob) {
-    CHECK(blob->count());
-    CHECK(this->filler_param_.fan_in() || this->filler_param_.fan_out())
-         << "MSR Filler requires either fan_in, fan_out, or both to be true.";
-    int fan_in = blob->count() / blob->num();
-    int fan_out = blob->count() / blob->channels();
-    Dtype n = fan_in;  // default to fan_in
-    if (this->filler_param_.fan_in() && this->filler_param_.fan_out()) {
-      n = (fan_in + fan_out) / Dtype(2);
-    } else if (this->filler_param_.fan_out()) {
-      n = fan_out;
+  class MSRFiller : public Filler<Dtype> {
+  public:
+    explicit MSRFiller(const FillerParameter& param)
+        : Filler<Dtype>(param) {}
+    virtual void Fill(Blob<Dtype>* blob) {
+      CHECK(blob->count());
+  CHECK(this->filler_param_.fan_in() || this->filler_param_.fan_out())
+  << "MSR Filler requires either fan_in, fan_out, or both to be true.";
+
+  const Dtype negative_slope = this->filler_param_.negative_slope();
+  const Dtype scale = this->filler_param_.scale();
+  int fan_in = -1;
+  int fan_out = -1;
+  switch (this->filler_param_.layer_type()) {
+
+    case FillerParameter_FillerLayerType_CONVOLUTION: {
+      fan_in = blob->count() / blob->num();
+      fan_out = blob->count() / blob->channels();
+      break;
     }
-    Dtype std = sqrt(Dtype(2) / n);
-    caffe_rng_gaussian<Dtype>(blob->count(), Dtype(0), std,
-        blob->mutable_cpu_data());
-    CHECK_EQ(this->filler_param_.sparse(), -1)
-         << "Sparsity not supported by this Filler.";
+    case FillerParameter_FillerLayerType_INNER_PRODUCT: {
+      CHECK_EQ(blob->num(), 1) << "not a innerproduct layer";
+      CHECK_EQ(blob->channels(), 1) << "not a innerproduct layer";
+      fan_in = blob->height();
+      fan_out = blob->width();
+      break;
+    }
+    default:
+      CHECK(false) << "unspecified layer type";
+    break;
+
   }
+  Dtype n = fan_in;  // default to fan_in
+  if (this->filler_param_.fan_in() && this->filler_param_.fan_out()) {
+    n = (fan_in + fan_out) / Dtype(2);
+  } else if (this->filler_param_.fan_out()) {
+    n = fan_out;
+  }
+  Dtype std = scale * sqrt(Dtype(2) / (n * (1 + negative_slope * negative_slope)));
+  caffe_rng_gaussian<Dtype>(blob->count(), Dtype(0), std,  blob->mutable_cpu_data());
+  CHECK_EQ(this->filler_param_.sparse(), -1) << "Sparsity not supported by this Filler.";
+}
 };
 
 

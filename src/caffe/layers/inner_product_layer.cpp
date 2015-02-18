@@ -28,8 +28,9 @@ void InnerProductLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     // Intialize the weight
     this->blobs_[0].reset(new Blob<Dtype>(1, 1, N_, K_));
     // fill the weights
-    shared_ptr<Filler<Dtype> > weight_filler(GetFiller<Dtype>(
-        this->layer_param_.inner_product_param().weight_filler()));
+    FillerParameter wf_params =  this->layer_param_.inner_product_param().weight_filler();
+    wf_params.set_layer_type(FillerParameter_FillerLayerType_INNER_PRODUCT);
+    shared_ptr<Filler<Dtype> > weight_filler(GetFiller<Dtype>(wf_params));
     weight_filler->Fill(this->blobs_[0].get());
     // If necessary, intiialize and fill the bias term
     if (bias_term_) {
