@@ -488,7 +488,20 @@ class MahalanobisLossLayer : public LossLayer<Dtype> {
   virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
 
-  virtual inline int ExactNumBottomBlobs() const { return 2; }
+  // MahalanobisLoss takes 2-3 bottom Blobs
+  // The first two are required mu_estimated and mu_true
+  // The third is optional Lambda_estimated (inverse covariance of the estimate)
+  virtual inline int ExactNumBottomBlobs() const { return -1; }
+  virtual inline int MinBottomBlobs() const { return 2; }
+  virtual inline int MaxBottomBlobs() const { return 3; }
+  // MahalanobisLoss outputs 1-2 blobs
+  // The first is the sum of squared weighted distance
+  // The second is the negative determinent of the information matrix
+  //    this only is output if three bottom blobs are provided
+  virtual inline int ExactNumTopBlobs() const { return -1; }
+  virtual inline int MinTopBlobs() const { return 1; }
+  virtual inline int MaxTopBlobs() const { return 2; }
+
   virtual inline const char* type() const { return "MahalanobisLoss"; }
 
  protected:
@@ -507,6 +520,7 @@ class MahalanobisLossLayer : public LossLayer<Dtype> {
       const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
 
   Blob<Dtype> diff_;  // cached for backward pass
+  Blob<Dtype> U_;  // cached for backward pass
   vector<uint32_t> is_angle_;  // indicates dimensions that represent an angle
 };
 
