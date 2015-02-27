@@ -6,6 +6,8 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/math_functions.hpp"
 
+#define EPS (1e-6)
+
 namespace caffe {
 
 template <typename Dtype>
@@ -29,6 +31,23 @@ void MahalanobisLossLayer<Dtype>::Reshape(
   CHECK_EQ(bottom[1]->height(), 1);
   CHECK_EQ(bottom[1]->width(), 1);
   diff_.Reshape(bottom[0]->num(), bottom[0]->channels(), 1, 1);
+  if (bottom.size() >= 3) {
+    CHECK_EQ(top.size(), 2);
+    U_.Reshape(bottom[0]->num(), bottom[0]->channels(), bottom[0]->channels(),
+        1);
+    // will only modify the upper triangle, set rest to zero
+    memset(U_.mutable_cpu_data(), 0.0, U_.count() * sizeof(Dtype));
+    Udiff_.ReshapeLike(diff_);
+    UtUdiff_.ReshapeLike(diff_);
+    det_.Reshape(bottom[0]->num(), 1, 1, 1);
+    // setup second top blob, regularization
+    top[1]->ReshapeLike(*top[0]);
+  } else {
+    U_.Reshape(0, 0, 0, 0);
+    Udiff_.Reshape(0, 0, 0, 0);
+    UtUdiff_.Reshape(0, 0, 0, 0);
+    det_.Reshape(0, 0, 0, 0);
+  }
 }
 
 template <typename Dtype>
@@ -36,20 +55,63 @@ void MahalanobisLossLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom,
     const vector<Blob<Dtype>*>& top) {
   int count = bottom[0]->count();
+  // compute the difference
   caffe_sub(
       count,
       bottom[0]->cpu_data(),  // a
       bottom[1]->cpu_data(),  // b
       diff_.mutable_cpu_data());  // a_i-b_i
+  // account for angular roll over
   for (int n = 0; n < diff_.num(); ++n) {
     for (size_t i = 0; i < is_angle_.size(); ++i) {
       int ii = n*diff_.channels() + is_angle_[i];
       diff_.mutable_cpu_data()[ii] = caffe_cpu_min_angle(diff_.cpu_data()[ii]);
     }
   }
-  Dtype dot = caffe_cpu_dot(count, diff_.cpu_data(), diff_.cpu_data());
-  Dtype loss = dot / bottom[0]->num() / Dtype(2);
-  top[0]->mutable_cpu_data()[0] = loss;
+  if (bottom.size() >= 3) {  // weighted distance
+    // TODO(NCB) is there a more efficient way to do this?
+    Dtype reg_sum(0);
+    for (int n = 0; n < U_.num(); ++n) {
+      // pack the upper-triangular weight matrix (Cholesky factor of information
+      // matrix)
+      int ii = 0;
+      for (size_t i = 0; i < U_.channels(); ++i) {
+        for (size_t j = i; j < U_.height(); ++j) {
+          Dtype val = bottom[2]->cpu_data()[(n*bottom[2]->channels() + ii)];
+          if (i == j)
+            val = fabs(val);
+          U_.mutable_cpu_data()[(n*U_.channels() + i)*U_.height() + j] = val;
+          ++ii;
+        }
+      }
+      // Udiff
+      caffe_cpu_gemv(CblasNoTrans, U_.channels(), U_.height(), Dtype(1.0),
+          U_.cpu_data() + n*U_.channels()*U_.height(),
+          diff_.cpu_data() + n*diff_.channels(), Dtype(0.0),
+          Udiff_.mutable_cpu_data() + n*Udiff_.channels());
+      // UtUdiff
+      caffe_cpu_gemv(CblasTrans, U_.channels(), U_.height(), Dtype(1.0),
+          U_.cpu_data() + n*U_.channels()*U_.height(),
+          Udiff_.cpu_data() + n*Udiff_.channels(),
+          Dtype(0.0), UtUdiff_.mutable_cpu_data() + n*UtUdiff_.channels());
+      // compute regularizer
+      Dtype det = Dtype(1.0);
+      for (size_t i = 0; i < U_.channels(); ++i) {
+          det *= U_.data_at(n,i,i,0);
+      }
+      det_.mutable_cpu_data()[n] = det;
+      reg_sum += Dtype(1.0) / (det * det + EPS);
+    }
+    // difftUtUdiff
+    Dtype dot = caffe_cpu_dot(count, diff_.cpu_data(), UtUdiff_.cpu_data());
+    Dtype loss = dot / bottom[0]->num() / Dtype(2);
+    top[0]->mutable_cpu_data()[0] = loss;
+    top[1]->mutable_cpu_data()[0] = reg_sum / bottom[0]->num() / Dtype(2.0);
+  } else {  // unweighted distance
+    Dtype dot = caffe_cpu_dot(count, diff_.cpu_data(), diff_.cpu_data());
+    Dtype loss = dot / bottom[0]->num() / Dtype(2);
+    top[0]->mutable_cpu_data()[0] = loss;
+  }
 }
 
 template <typename Dtype>
@@ -59,12 +121,59 @@ void MahalanobisLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     if (propagate_down[i]) {
       const Dtype sign = (i == 0) ? 1 : -1;
       const Dtype alpha = sign * top[0]->cpu_diff()[0] / bottom[i]->num();
-      caffe_cpu_axpby(
-          bottom[i]->count(),              // count
-          alpha,                           // alpha
-          diff_.cpu_data(),                // a
-          Dtype(0),                        // beta
-          bottom[i]->mutable_cpu_diff());  // b
+      if (bottom.size() >= 3) {
+        caffe_cpu_axpby(
+            bottom[i]->count(),              // count
+            alpha,                           // alpha
+            UtUdiff_.cpu_data(),             // a
+            Dtype(0),                        // beta
+            bottom[i]->mutable_cpu_diff());  // b
+      } else {
+        caffe_cpu_axpby(
+            bottom[i]->count(),              // count
+            alpha,                           // alpha
+            diff_.cpu_data(),                // a
+            Dtype(0),                        // beta
+            bottom[i]->mutable_cpu_diff());  // b
+      }
+    }
+  }
+  if (bottom.size() >= 3 && propagate_down[2]) {
+    const Dtype alpha = top[0]->cpu_diff()[0] / bottom[0]->num();
+    int dim = bottom[0]->channels();
+    Dtype tmp[dim*dim];
+    for (int n = 0; n < U_.num(); ++n) {
+      caffe_cpu_gemm(CblasNoTrans,   // trans A
+                     CblasNoTrans,   // trans B,
+                     dim, dim, 1,  // Dimensions of A and B
+                     alpha,
+                     Udiff_.cpu_data() + n*dim,
+                     diff_.cpu_data() + n*dim,
+                     Dtype(0),
+                     tmp);
+      int ii = 0;
+      for (size_t i = 0; i < U_.channels(); ++i) {
+        for (size_t j = i; j < U_.height(); ++j) {
+          Dtype d_loss = tmp[i*dim+j]; // the contribution from the loss
+          // the diagonal elements contribute to the regularizer and have an abs
+          // non linearity
+          Dtype d_reg(0);
+          if (i == j) {
+            Dtype det(det_.cpu_data()[n]);
+            d_reg = top[1]->cpu_diff()[0] / bottom[0]->num() ;
+            d_reg *= Dtype(-1) / ((det * det + EPS) * (det * det + EPS));
+            d_reg *= (det + EPS);
+            d_reg *= det / bottom[2]->data_at(n, ii, 0, 0);
+            if (bottom[2]->data_at(n, ii, 0, 0) < 0) {
+              d_loss *= -1;
+              // d_reg *= -1;
+            }
+          }
+          bottom[2]->mutable_cpu_diff()[n*bottom[2]->channels() + ii] =
+              d_loss + d_reg;
+          ++ii;
+        }
+      }
     }
   }
 }
