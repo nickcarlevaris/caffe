@@ -6,9 +6,9 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/math_functions.hpp"
 
-#define EPS (1e-6)
-
 namespace caffe {
+
+const double EPS = 1e-6;
 
 template <typename Dtype>
 void MahalanobisLossLayer<Dtype>::LayerSetUp(
@@ -39,14 +39,12 @@ void MahalanobisLossLayer<Dtype>::Reshape(
     memset(U_.mutable_cpu_data(), 0.0, U_.count() * sizeof(Dtype));
     Udiff_.ReshapeLike(diff_);
     UtUdiff_.ReshapeLike(diff_);
-    det_.Reshape(bottom[0]->num(), 1, 1, 1);
     // setup second top blob, regularization
     top[1]->ReshapeLike(*top[0]);
   } else {
     U_.Reshape(0, 0, 0, 0);
     Udiff_.Reshape(0, 0, 0, 0);
     UtUdiff_.Reshape(0, 0, 0, 0);
-    det_.Reshape(0, 0, 0, 0);
   }
 }
 
@@ -70,7 +68,7 @@ void MahalanobisLossLayer<Dtype>::Forward_cpu(
   }
   if (bottom.size() >= 3) {  // weighted distance
     // TODO(NCB) is there a more efficient way to do this?
-    Dtype reg_sum(0);
+    Dtype reg(0);
     for (int n = 0; n < U_.num(); ++n) {
       // pack the upper-triangular weight matrix (Cholesky factor of information
       // matrix)
@@ -95,18 +93,15 @@ void MahalanobisLossLayer<Dtype>::Forward_cpu(
           Udiff_.cpu_data() + n*Udiff_.channels(),
           Dtype(0.0), UtUdiff_.mutable_cpu_data() + n*UtUdiff_.channels());
       // compute regularizer
-      Dtype det = Dtype(1.0);
       for (size_t i = 0; i < U_.channels(); ++i) {
-          det *= U_.data_at(n,i,i,0);
+          reg += log(U_.data_at(n,i,i,0) + EPS);
       }
-      det_.mutable_cpu_data()[n] = det;
-      reg_sum += Dtype(1.0) / (det * det + EPS);
     }
     // difftUtUdiff
     Dtype dot = caffe_cpu_dot(count, diff_.cpu_data(), UtUdiff_.cpu_data());
     Dtype loss = dot / bottom[0]->num() / Dtype(2);
     top[0]->mutable_cpu_data()[0] = loss;
-    top[1]->mutable_cpu_data()[0] = reg_sum / bottom[0]->num() / Dtype(2.0);
+    top[1]->mutable_cpu_data()[0] = Dtype(-2.0) * reg / bottom[0]->num();
   } else {  // unweighted distance
     Dtype dot = caffe_cpu_dot(count, diff_.cpu_data(), diff_.cpu_data());
     Dtype loss = dot / bottom[0]->num() / Dtype(2);
@@ -159,14 +154,11 @@ void MahalanobisLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
           // non linearity
           Dtype d_reg(0);
           if (i == j) {
-            Dtype det(det_.cpu_data()[n]);
             d_reg = top[1]->cpu_diff()[0] / bottom[0]->num() ;
-            d_reg *= Dtype(-1) / ((det * det + EPS) * (det * det + EPS));
-            d_reg *= (det + EPS);
-            d_reg *= det / bottom[2]->data_at(n, ii, 0, 0);
+            d_reg *= Dtype(-2) / (fabs(bottom[2]->data_at(n, ii, 0, 0)) + EPS);
             if (bottom[2]->data_at(n, ii, 0, 0) < 0) {
               d_loss *= -1;
-              // d_reg *= -1;
+              d_reg *= -1;
             }
           }
           bottom[2]->mutable_cpu_diff()[n*bottom[2]->channels() + ii] =

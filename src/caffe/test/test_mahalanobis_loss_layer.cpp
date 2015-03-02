@@ -173,20 +173,18 @@ TYPED_TEST(MahalanobisLossLayerWeightedTest, TestForward) {
     }
     // build U
     int ii = 0;
-    Dtype det(1);
+    Dtype eps(1e-6);
     for (int i = 0; i < dim; ++i) {
       for (int j = i; j < dim; ++j) {
         if (i == j) {
           U[i*dim+j] = fabs(this->blob_bottom_2_->data_at(n, ii, 0, 0));
-          det *= U[i*dim+j];
+          reg += log(U[i*dim+j] + eps);
         } else {
           U[i*dim+j] = this->blob_bottom_2_->data_at(n, ii, 0, 0);
         }
         ++ii;
       }
     }
-    Dtype eps(1e-6);
-    reg += Dtype(1) / (det * det + eps);
     // apply diff = U*diff
     caffe_cpu_gemv(CblasNoTrans, dim, dim, Dtype(1.0), U, diff, Dtype(0.0),
         wdiff);
@@ -200,7 +198,7 @@ TYPED_TEST(MahalanobisLossLayerWeightedTest, TestForward) {
   delete [] U;
   loss /= static_cast<Dtype>(num) * Dtype(2);
   EXPECT_NEAR(this->blob_top_loss_->cpu_data()[0], loss, 1e-2);
-  reg /= static_cast<Dtype>(num) * Dtype(2);
+  reg *= Dtype(-2) / static_cast<Dtype>(num);
   EXPECT_NEAR(this->blob_top_reg_->cpu_data()[0], reg, 1e-2);
 }
 

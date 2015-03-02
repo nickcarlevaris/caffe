@@ -523,7 +523,6 @@ class MahalanobisLossLayer : public LossLayer<Dtype> {
   Blob<Dtype> U_;  // cached for backward pass
   Blob<Dtype> Udiff_;  // cached for backward pass
   Blob<Dtype> UtUdiff_;  // cached for backward pass
-  Blob<Dtype> det_;  // cached for backward pass
   vector<uint32_t> is_angle_;  // indicates dimensions that represent an angle
 };
 
