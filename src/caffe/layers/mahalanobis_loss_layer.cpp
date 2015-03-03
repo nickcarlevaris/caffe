@@ -8,7 +8,7 @@
 
 namespace caffe {
 
-const double EPS = 1e-6;
+const double EPS = 1e-3;
 
 template <typename Dtype>
 void MahalanobisLossLayer<Dtype>::LayerSetUp(

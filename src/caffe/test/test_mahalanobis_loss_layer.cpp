@@ -173,7 +173,7 @@ TYPED_TEST(MahalanobisLossLayerWeightedTest, TestForward) {
     }
     // build U
     int ii = 0;
-    Dtype eps(1e-6);
+    Dtype eps(1e-3);
     for (int i = 0; i < dim; ++i) {
       for (int j = i; j < dim; ++j) {
         if (i == j) {
